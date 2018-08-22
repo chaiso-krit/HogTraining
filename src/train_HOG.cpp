@@ -1,4 +1,5 @@
 #include <opencv2/opencv.hpp>
+#include <opencv2/ml/ml.hpp>
 
 #include <string>
 #include <iostream>
@@ -8,10 +9,9 @@
 #include <time.h>
 
 using namespace cv;
-using namespace cv::ml;
 using namespace std;
 
-void get_svm_detector(const Ptr<SVM>& svm, vector< float > & hog_detector );
+void get_svm_detector(const SVM& svm, vector< float > & hog_detector );
 void convert_to_ml(const std::vector< cv::Mat > & train_samples, cv::Mat& trainData );
 void load_images( const string & prefix, const string & filename, vector< Mat > & img_lst );
 void sample_neg( const vector< Mat > & full_neg_lst, vector< Mat > & neg_lst, const Size & size );
@@ -21,25 +21,15 @@ void train_svm( const vector< Mat > & gradient_lst, const vector< int > & labels
 void draw_locations( Mat & img, const vector< Rect > & locations, const Scalar & color );
 void test_it( const Size & size );
 
-void get_svm_detector(const Ptr<SVM>& svm, vector< float > & hog_detector )
+void get_svm_detector(const SVM& svm, vector< float > & hog_detector )
 {
-    // get the support vectors
-    Mat sv = svm->getSupportVectors();
-    const int sv_total = sv.rows;
-    // get the decision function
-    Mat alpha, svidx;
-    double rho = svm->getDecisionFunction(0, alpha, svidx);
+    int vc = svm.get_var_count();
 
-    CV_Assert( alpha.total() == 1 && svidx.total() == 1 && sv_total == 1 );
-    CV_Assert( (alpha.type() == CV_64F && alpha.at<double>(0) == 1.) ||
-               (alpha.type() == CV_32F && alpha.at<float>(0) == 1.f) );
-    CV_Assert( sv.type() == CV_32F );
-    hog_detector.clear();
-
-    hog_detector.resize(sv.cols + 1);
-    memcpy(&hog_detector[0], sv.ptr(), sv.cols*sizeof(hog_detector[0]));
-    //hog_detector[sv.cols] = (float)-rho;
-    hog_detector[sv.cols] = -1.5;
+    const float* v = svm.get_support_vector(0);
+    for (int i = 0; i < vc; ++i)
+    {
+        hog_detector.push_back(v[i]);
+    }
 }
 
 
@@ -321,8 +311,25 @@ void train_svm( const vector< Mat > & gradient_lst, const vector< int > & labels
     convert_to_ml( gradient_lst, train_data );
 
     clog << "Start training...";
+    SVM svm;
+    SVMParams params;
+    //params.coef0 = 0.0;
+    //params.degree = 3;
+    params.term_crit = cvTermCriteria( CV_TERMCRIT_ITER + CV_TERMCRIT_EPS, 10000, 1e-6 );
+    //params.gamma = 0;
+    params.kernel_type = SVM::LINEAR;
+    //params.nu = 0.5;
+    params.p = 0.1; // for EPSILON_SVR, epsilon in loss function?
+    //params.C = 10; // From paper, soft classifier
+    params.svm_type = SVM::EPS_SVR; // C_SVC; // EPSILON_SVR; // may be also NU_SVR; // do regression task
+    svm.train(train_data, Mat(labels), Mat(), Mat(), params);
+
+    Mat result;
+    svm.predict(train_data, result);
+    cout << result << endl;
+
+    /*
     Ptr<SVM> svm = SVM::create();
-    /* Default values to train SVM */
     svm->setCoef0(0.0);
     svm->setDegree(3);
     svm->setTermCriteria(TermCriteria( CV_TERMCRIT_ITER+CV_TERMCRIT_EPS, 10000, 1e-6 ));
@@ -333,9 +340,11 @@ void train_svm( const vector< Mat > & gradient_lst, const vector< int > & labels
     svm->setC(0.001); // From paper, soft classifier
     svm->setType(SVM::EPS_SVR); // C_SVC; // EPSILON_SVR; // may be also NU_SVR; // do regression task
     svm->train(train_data, ROW_SAMPLE, Mat(labels));
+    */
+
     clog << "...[done]" << endl;
 
-    svm->save( "iphone_detector.yml" );
+    svm.save( "iphone_detector.yml" );
 }
 
 void draw_locations( Mat & img, const vector< Rect > & locations, const Scalar & color )
@@ -355,26 +364,31 @@ void test_it( const Size & size )
 {
     Scalar trained( 0, 0, 255 );
     Mat img, draw;
-    Ptr<SVM> svm;
+    SVM svm;
     HOGDescriptor my_hog;
     my_hog.winSize = size;
     vector< Rect > locations;
 
     // Load the trained SVM.
-    svm = StatModel::load<SVM>( "iphone_detector.yml" );
+    svm.load( "iphone_detector.yml" );
     // Set the trained svm to my_hog
     vector< float > hog_detector;
-    get_svm_detector( svm, hog_detector );
+    cout << "Get support vector" << endl;
+    get_svm_detector( svm , hog_detector );
+    cout << "Get support vector .. Finish" << endl;
     my_hog.setSVMDetector( hog_detector );
 
+    cout << "Load test image" << endl;
     img = imread( "images/test_2.jpeg" ); // load test image
     draw = img.clone();
 
     locations.clear();
+    cout << "Detect object" << endl;
     my_hog.detectMultiScale( img, locations );
     draw_locations( draw, locations, trained );
 
-    imshow( "Test", draw );
+    cout << "Show output" << endl;
+    imshow( "Test Output", draw );
     waitKey( 0 );
 }
 
@@ -382,11 +396,7 @@ int main( int argc, char** argv )
 {
     cv::CommandLineParser parser(argc, argv, "{help h|| show help message}"
             "{pd||pos_dir}{p||pos.lst}{nd||neg_dir}{n||neg.lst}");
-    if (parser.has("help"))
-    {
-        parser.printMessage();
-        exit(0);
-    }
+
     vector< Mat > pos_lst;
     vector< Mat > full_neg_lst;
     vector< Mat > neg_lst;
@@ -411,13 +421,11 @@ int main( int argc, char** argv )
     Size img_size = Size(40, 80);
 
     sample_neg( full_neg_lst, neg_lst, img_size );
-    sample_neg( full_neg_lst, neg_lst, img_size );
-    sample_neg( full_neg_lst, neg_lst, img_size );
-    sample_neg( full_neg_lst, neg_lst, img_size );
-    sample_neg( full_neg_lst, neg_lst, img_size );
     labels.insert( labels.end(), neg_lst.size(), -1 );
     CV_Assert( old < labels.size() );
 
+    cout << "Positives count :" << pos_lst.size() << endl;
+    cout << "Negatives count :" << neg_lst.size() << endl;
     compute_hog( pos_lst, gradient_lst, img_size );
     compute_hog( neg_lst, gradient_lst, img_size );
 

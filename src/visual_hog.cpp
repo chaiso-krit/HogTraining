@@ -1,4 +1,5 @@
 #include <opencv2/opencv.hpp>
+#include <opencv2/ml/ml.hpp>
 
 #include <string>
 #include <iostream>
@@ -8,7 +9,6 @@
 #include <time.h>
 
 using namespace cv;
-using namespace cv::ml;
 using namespace std;
 
 void load_images( const string & filename, Mat & img );
@@ -224,11 +224,6 @@ int main( int argc, char** argv )
 {
     cv::CommandLineParser parser(argc, argv, "{help h|| show help message}"
             "{i|| input}");
-    if (parser.has("help"))
-    {
-        parser.printMessage();
-        exit(0);
-    }
     Mat img;
 
     string image_name = parser.get<string>("i");

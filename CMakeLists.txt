@@ -10,3 +10,6 @@ target_link_libraries( visual_hog ${OpenCV_LIBS} )
 
 add_executable( train_HOG src/train_HOG.cpp )
 target_link_libraries( train_HOG ${OpenCV_LIBS} )
+
+add_executable( crop_image src/crop_image.cpp )
+target_link_libraries( crop_image ${OpenCV_LIBS} )
